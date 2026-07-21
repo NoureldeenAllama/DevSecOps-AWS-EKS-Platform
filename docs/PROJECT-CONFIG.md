@@ -23,10 +23,10 @@ All team members should follow and update it whenever project configurations cha
 
 | Item | Value |
 |------|-------|
-| AWS Region | TBD |
-| VPC Name | TBD |
-| EKS Cluster Name | TBD |
-| ECR Repository Name | TBD |
+| AWS Region | us-east-1 |
+| VPC Name | my-eks-cluster-vpc |
+| EKS Cluster Name | my-eks-cluster |
+| ECR Repository Name | my-app |
 
 ---
 
@@ -80,3 +80,4 @@ chore: initialize repository
 | Date | Updated By | Description |
 |------|------------|-------------|
 | 2026-07-20 | Mahmoud | Initial project configuration |
+| 2026-07-21 | Infrastructure Team | Updated AWS region, VPC, EKS cluster, and ECR configuration from Terraform |
