@@ -1,6 +1,4 @@
-<<<<<<< HEAD
-# sourcecodeseniorwr
-=======
+
 # 🚀 Production DevOps Platform on AWS EKS
 
 A production-grade DevOps platform built on **AWS** using **Amazon EKS**, **Terraform**, **GitHub Actions**, **Helm**, and **Prometheus/Grafana**.
