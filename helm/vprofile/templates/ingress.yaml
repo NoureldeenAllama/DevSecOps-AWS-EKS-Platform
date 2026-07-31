@@ -1,0 +1,26 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vprofile-ingress
+  namespace: vprofile
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    # "instance" (not "ip") because kubeadm uses an overlay CNI (Calico/Flannel) -
+    # pod IPs aren't VPC-routable, so the ALB must hit each node's NodePort instead.
+    alb.ingress.kubernetes.io/target-type: instance
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
+    alb.ingress.kubernetes.io/healthcheck-path: /
+    # alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:...   # uncomment for HTTPS
+    # alb.ingress.kubernetes.io/ssl-redirect: "443"                # uncomment for HTTPS
+spec:
+  ingressClassName: alb
+  rules:
+    - http:                     # add "host: yourdomain.com" above this line if you have a domain
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80

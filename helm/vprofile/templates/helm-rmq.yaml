@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rmq01
+  namespace: vprofile
+  labels:
+    app: rmq01
+    tier: mq
+spec:
+  replicas: {{ .Values.rabbitmq.replicaCount }}
+  selector:
+    matchLabels:
+      app: rmq01
+  template:
+    metadata:
+      labels:
+        app: rmq01
+        tier: mq
+    spec:
+      containers:
+        - name: rmq01
+          image: "{{ .Values.rabbitmq.image.repository }}:{{ .Values.rabbitmq.image.tag }}"
+          ports:
+            - containerPort: {{ .Values.rabbitmq.service.port }}
+            - containerPort: {{ .Values.rabbitmq.service.managementPort }}
+          env:
+            - name: RABBITMQ_DEFAULT_USER
+              value: guest
+            - name: RABBITMQ_DEFAULT_PASS
+              value: guest
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rmq01
+  namespace: vprofile
+  labels:
+    app: rmq01
+spec:
+  selector:
+    app: rmq01
+  ports:
+    - name: amqp
+      port: {{ .Values.rabbitmq.service.port }}
+      targetPort: {{ .Values.rabbitmq.service.port }}
+    - name: management
+      port: {{ .Values.rabbitmq.service.managementPort }}
+      targetPort: {{ .Values.rabbitmq.service.managementPort }}
