@@ -1,0 +1,99 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: vprofile
+  labels:
+    app: backend
+    tier: backend
+spec:
+  replicas: {{ .Values.backend.replicaCount }}
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+        tier: backend
+      annotations:
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: "backend-role"
+        vault.hashicorp.com/agent-inject-secret-backend.properties: "secret/data/backend"
+        vault.hashicorp.com/agent-inject-template-backend.properties: |
+          {{`{{- with secret "secret/data/backend" -}}`}}
+          db_host={{`{{ .Data.data.db_host }}`}}
+          db_name={{`{{ .Data.data.db_name }}`}}
+          db_user={{`{{ .Data.data.db_user }}`}}
+          db_password={{`{{ .Data.data.db_password }}`}}
+          rabbitmq_host={{`{{ .Data.data.rabbitmq_host }}`}}
+          rabbitmq_user={{`{{ .Data.data.rabbitmq_user }}`}}
+          rabbitmq_password={{`{{ .Data.data.rabbitmq_password }}`}}
+          memcached_host={{`{{ .Data.data.memcached_host }}`}}
+          memcached_port={{`{{ .Data.data.memcached_port }}`}}
+          {{`{{- end }}`}}
+    spec:
+      serviceAccountName: backend-sa
+      initContainers:
+        - name: wait-for-db
+          image: busybox:1.36
+          command:
+            [
+              "sh",
+              "-c",
+              "until nc -z db01 3306; do echo waiting for db01; sleep 3; done;",
+            ]
+        - name: wait-for-mc
+          image: busybox:1.36
+          command:
+            [
+              "sh",
+              "-c",
+              "until nc -z mc01 11211; do echo waiting for mc01; sleep 3; done;",
+            ]
+        - name: wait-for-rmq
+          image: busybox:1.36
+          command:
+            [
+              "sh",
+              "-c",
+              "until nc -z rmq01 5672; do echo waiting for rmq01; sleep 3; done;",
+            ]
+      containers:
+        - name: backend
+          image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
+          command:
+            - "/bin/sh"
+            - "-c"
+            - |
+              until [ -f /vault/secrets/backend.properties ]; do echo waiting for vault secret; sleep 2; done
+              . /vault/secrets/backend.properties
+              exec catalina.sh run
+          ports:
+            - containerPort: {{ .Values.backend.service.targetPort }}
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 15
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: vprofile
+  labels:
+    app: backend
+spec:
+  selector:
+    app: backend
+  ports:
+    - port: {{ .Values.backend.service.port }}
+      targetPort: {{ .Values.backend.service.targetPort }}

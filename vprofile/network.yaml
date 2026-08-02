@@ -1,0 +1,114 @@
+# Default deny ALL ingress traffic to every pod in the namespace.
+# (Egress is left untouched here on purpose, so DNS / outbound calls
+# keep working without extra rules.)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: vprofile
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+# Allow anyone (outside cluster / other namespaces) to reach the
+# frontend on port 80 - this is the public entry point.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-frontend
+  namespace: vprofile
+spec:
+  podSelector:
+    matchLabels:
+      app: frontend
+  policyTypes:
+    - Ingress
+  ingress:
+    - {}
+---
+# Only the frontend may talk to the backend, and only on 8080.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frontend-to-backend
+  namespace: vprofile
+spec:
+  podSelector:
+    matchLabels:
+      app: backend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: frontend
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+# Only the backend may talk to MySQL, and only on 3306.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-to-db
+  namespace: vprofile
+spec:
+  podSelector:
+    matchLabels:
+      app: db01
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: backend
+      ports:
+        - protocol: TCP
+          port: 3306
+---
+# Only the backend may talk to Memcached, and only on 11211.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-to-mc
+  namespace: vprofile
+spec:
+  podSelector:
+    matchLabels:
+      app: mc01
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: backend
+      ports:
+        - protocol: TCP
+          port: 11211
+---
+# Only the backend may talk to RabbitMQ, and only on 5672 (AMQP).
+# Management UI (15672) stays blocked from other pods by default;
+# use `kubectl port-forward` if you need to open it yourself.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-to-rmq
+  namespace: vprofile
+spec:
+  podSelector:
+    matchLabels:
+      app: rmq01
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: backend
+      ports:
+        - protocol: TCP
+          port: 5672

@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: db01
+  namespace: vprofile
+  labels:
+    app: db01
+    tier: db
+spec:
+  replicas: {{ .Values.db.replicaCount }}
+  selector:
+    matchLabels:
+      app: db01
+  template:
+    metadata:
+      labels:
+        app: db01
+        tier: db
+      annotations:
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: "mysql-role"
+        vault.hashicorp.com/agent-inject-secret-mysql.env: "secret/data/mysql"
+        vault.hashicorp.com/agent-inject-template-mysql.env: |
+          {{`{{- with secret "secret/data/mysql" -}}`}}
+          MYSQL_ROOT_PASSWORD={{`{{ .Data.data.root_password }}`}}
+          {{`{{- end }}`}}
+    spec:
+      serviceAccountName: mysql-sa
+      containers:
+        - name: db01
+          image: "{{ .Values.db.image.repository }}:{{ .Values.db.image.tag }}"
+          command:
+            - "/bin/sh"
+            - "-c"
+            - |
+              until [ -f /vault/secrets/mysql.env ]; do echo waiting for vault secret; sleep 2; done
+              export $(cat /vault/secrets/mysql.env | xargs)
+              exec docker-entrypoint.sh mysqld
+          ports:
+            - containerPort: {{ .Values.db.service.targetPort }}
+          env:
+            - name: MYSQL_DATABASE
+              value: "{{ .Values.db.database }}"
+          livenessProbe:
+            exec:
+              command:
+                - "/bin/sh"
+                - "-c"
+                - "mysqladmin ping -h localhost -p\"$MYSQL_ROOT_PASSWORD\""
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 10
+          readinessProbe:
+            exec:
+              command:
+                - "/bin/sh"
+                - "-c"
+                - "mysqladmin ping -h localhost -p\"$MYSQL_ROOT_PASSWORD\""
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 10
+          volumeMounts:
+            - name: db-data
+              mountPath: /var/lib/mysql
+      volumes:
+        - name: db-data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: db01
+  namespace: vprofile
+  labels:
+    app: db01
+spec:
+  selector:
+    app: db01
+  ports:
+    - port: {{ .Values.db.service.port }}
+      targetPort: {{ .Values.db.service.targetPort }}
