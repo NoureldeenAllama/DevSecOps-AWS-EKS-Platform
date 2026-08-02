@@ -1,0 +1,264 @@
+name: Java CI
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+
+      ############################################
+      # Checkout
+      ############################################
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      ############################################
+      # Java
+      ############################################
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      ############################################
+      # Verify Environment
+      ############################################
+      - name: Verify Java & Maven
+        run: |
+          java -version
+          javac -version
+          mvn -version
+
+      ############################################
+      # Build
+      ############################################
+      - name: Build & Test
+        run: mvn -B clean verify
+
+      ############################################
+      # SonarQube
+      ############################################
+      - name: SonarQube Analysis
+        continue-on-error: true
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        run: |
+          mvn \
+          org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
+          -Dsonar.projectKey=JavaProject \
+          -Dsonar.host.url=$SONAR_HOST_URL \
+          -Dsonar.login=$SONAR_TOKEN \
+          -Dsonar.qualitygate.wait=true
+
+      # ==========================================
+      # Build Backend Docker Image
+      # ==========================================
+      - name: Build Backend Docker Image
+        run: |
+          docker build \
+            -f back/Dockerfile \
+            -t vprofile-back:${{ github.sha }} \
+            .
+      ############################################
+      # Install Trivy
+      ############################################
+      - name: Install Trivy
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget gnupg lsb-release apt-transport-https
+
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | \
+            gpg --dearmor | \
+            sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
+
+          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" | \
+            sudo tee /etc/apt/sources.list.d/trivy.list
+
+          sudo apt-get update
+          sudo apt-get install -y trivy
+      ############################################
+      # Verify Trivy
+      ############################################
+      - name: Verify Trivy
+        run: trivy --version
+      ############################################
+      # Scan Backend Image
+      ############################################
+      - name: Trivy Backend Scan
+        run: |
+          trivy image \
+            --severity HIGH,CRITICAL \
+            --exit-code 0 \
+            vprofile-back:${{ github.sha }}
+      ############################################
+      # Generate Backend Report
+      ############################################
+      - name: Generate Backend Report
+        run: |
+          trivy image \
+            --format table \
+            --output trivy-backend-report.txt \
+            vprofile-back:${{ github.sha }}
+      ############################################
+      # Upload Backend Report
+      ############################################
+      - name: Upload Backend Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-backend-report
+          path: trivy-backend-report.txt
+      ############################################
+      # Build Frontend Docker Image
+      ############################################
+      - name: Build Frontend Docker Image
+        run: |
+          docker build \
+            -f front/Dockerfile \
+            -t vprofile-front:${{ github.sha }} \
+            front
+      ############################################
+      # Trivy Frontend Scan
+      ############################################
+      - name: Trivy Frontend Scan
+        run: |
+          trivy image \
+            --severity HIGH,CRITICAL \
+            --exit-code 0 \
+            vprofile-front:${{ github.sha }}
+      ############################################
+      # Generate Frontend Report
+      ############################################
+      - name: Generate Frontend Report
+        run: |
+          trivy image \
+            --format table \
+            --output trivy-frontend-report.txt \
+            vprofile-front:${{ github.sha }}
+      ############################################
+      # Upload Frontend Report
+      ############################################
+      - name: Upload Frontend Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-frontend-report
+          path: trivy-frontend-report.txt
+      ############################################
+      # Build Database Docker Image
+      ############################################
+      - name: Build Database Docker Image
+        run: |
+          docker build \
+            -f db/Dockerfile \
+            -t vprofile-db:${{ github.sha }} \
+            db
+      ############################################
+      # Trivy Database Scan
+      ############################################
+      - name: Trivy Database Scan
+        run: |
+          trivy image \
+            --severity HIGH,CRITICAL \
+            --exit-code 0 \
+            vprofile-db:${{ github.sha }}
+      ############################################
+      # Generate Database Report
+      ############################################
+      - name: Generate Database Report
+        run: |
+          trivy image \
+            --format table \
+            --output trivy-db-report.txt \
+            vprofile-db:${{ github.sha }}
+      ############################################
+      # Upload Database Report
+      ############################################
+      - name: Upload Database Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-db-report
+          path: trivy-db-report.txt
+      ############################################
+      # Upload WAR
+      ############################################
+      - name: Upload WAR
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: WAR
+          path: target/*.war
+
+      ############################################
+      # Upload JaCoCo
+      ############################################
+      - name: Upload JaCoCo
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: JaCoCo
+          path: target/site/jacoco/
+      ############################################
+      # Configure AWS Credentials
+      ############################################
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+      ############################################
+      # Login to Amazon ECR
+      ############################################
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Tag Backend Image
+        run: |
+          docker tag \
+            vprofile-back:${{ github.sha }} \
+            ${{ steps.login-ecr.outputs.registry }}/vprofile-back:${{ github.sha }}
+
+      - name: Tag Frontend Image
+        run: |
+          docker tag \
+            vprofile-front:${{ github.sha }} \
+            ${{ steps.login-ecr.outputs.registry }}/vprofile-front:${{ github.sha }}
+
+      - name: Tag Database Image
+        run: |
+          docker tag \
+            vprofile-db:${{ github.sha }} \
+            ${{ steps.login-ecr.outputs.registry }}/vprofile-db:${{ github.sha }}
+
+      - name: Push Backend Image
+        run: |
+          docker push \
+            ${{ steps.login-ecr.outputs.registry }}/vprofile-back:${{ github.sha }}
+
+      - name: Push Frontend Image
+        run: |
+          docker push \
+            ${{ steps.login-ecr.outputs.registry }}/vprofile-front:${{ github.sha }}
+          
+      - name: Push Database Image
+        run: |
+          docker push \
+            ${{ steps.login-ecr.outputs.registry }}/vprofile-db:${{ github.sha }}
+
+      - name: List Docker Images After Tag
+        run: docker images

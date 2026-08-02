@@ -1,3 +1,4 @@
+
 # 🚀 Production DevOps Platform on AWS EKS
 
 A production-grade DevOps platform built on **AWS** using **Amazon EKS**, **Terraform**, **GitHub Actions**, **Helm**, and **Prometheus/Grafana**.
@@ -90,3 +91,4 @@ Project documentation will be added under the `docs/` directory as the project p
 # 📄 License
 
 This project is licensed under the MIT License.
+>>>>>>> cae35a006f8f432ea9191e04b1c14a8fc439bba2

@@ -1,0 +1,568 @@
+# ==============================================================================
+# kube-prometheus-stack - Production Helm Values Configuration
+# Target Platform: AWS EKS (Small-to-Medium Clusters: 2–5 Worker Nodes)
+# Chart: prometheus-community/kube-prometheus-stack
+# ==============================================================================
+
+fullnameOverride: "kube-prometheus-stack"
+namespaceOverride: "monitoring"
+
+# ------------------------------------------------------------------------------
+# Global Settings
+# ------------------------------------------------------------------------------
+global:
+  rbac:
+    create: true
+
+# ------------------------------------------------------------------------------
+# CRD Management
+# ------------------------------------------------------------------------------
+crds:
+  enabled: true
+  upgradeCRDs: true
+
+# ------------------------------------------------------------------------------
+# Default Prometheus Rules Configuration
+# ------------------------------------------------------------------------------
+defaultRules:
+  create: true
+  rules:
+    alertmanager: true
+    etcd: false # AWS EKS control plane is managed by AWS; etcd is not accessible
+    configReloaders: true
+    general: true
+    k8sContainerCpuUsageSecondsTotal: true
+    k8sContainerMemoryCache: true
+    k8sContainerMemoryRss: true
+    k8sContainerMemorySwap: true
+    k8sContainerMemoryWorkingSetBytes: true
+    k8sContainerResource: true
+    k8sPodOwner: true
+    kubeApiserverAvailability: true
+    kubeApiserverBurnrate: true
+    kubeApiserverHistogram: true
+    kubeApiserverSlos: true
+    kubeControllerManager: false # AWS EKS control plane is managed
+    kubeDns: true
+    kubelet: true
+    kubeProxy: true
+    kubePrometheusGeneral: true
+    kubePrometheusNodeRecording: true
+    kubernetesApps: true
+    kubernetesResources: true
+    kubernetesStorage: true
+    kubernetesSystem: true
+    kubeSchedulerAlerting: false # AWS EKS control plane is managed
+    kubeStateMetrics: true
+    network: true
+    node: true
+    nodeExporterAlerting: true
+    nodeExporterRecording: true
+    prometheus: true
+    prometheusOperator: true
+  labels:
+    role: alert-rules
+  annotations:
+    source: "kube-prometheus-stack"
+
+# ------------------------------------------------------------------------------
+# Prometheus Operator Deployment Settings
+# ------------------------------------------------------------------------------
+prometheusOperator:
+  enabled: true
+  
+  createCustomResource: true
+  cleanupCustomResources: false
+
+  # Scrape & Evaluation for Operator metrics
+  serviceMonitor:
+    selfMonitor: true
+    interval: "30s"
+
+  resources:
+    limits:
+      cpu: "200m"
+      memory: "256Mi"
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    runAsGroup: 65534
+    fsGroup: 65534
+    seccompProfile:
+      type: RuntimeDefault
+
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+
+  # Infrastructure Requirement: Ensure node labels exist before enabling nodeSelector.
+  # Disabled by default so 'helm install' works out of the box on standard nodes.
+  nodeSelector: {}
+  #   node.kubernetes.io/role: "monitoring"
+
+  # Infrastructure Requirement: Ensure corresponding node taints exist before enabling tolerations.
+  tolerations: []
+  # - key: "workload"
+  #   operator: "Equal"
+  #   value: "monitoring"
+  #   effect: "NoSchedule"
+
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                    - prometheus-operator
+            topologyKey: "kubernetes.io/hostname"
+
+  serviceAccount:
+    create: true
+    name: "prometheus-operator"
+    # Infrastructure Requirement: AWS IRSA IAM Role must be created in IAM before enabling this annotation.
+    annotations: {}
+    #   eks.amazonaws.com/role-arn: "arn:aws:iam::<AWS_ACCOUNT_ID>:role/<EKS_CLUSTER_NAME>-prometheus-operator-irsa"
+
+# ------------------------------------------------------------------------------
+# Prometheus Server Configuration
+# ------------------------------------------------------------------------------
+prometheus:
+  enabled: true
+
+  serviceAccount:
+    create: true
+    name: "prometheus"
+    # Infrastructure Requirement: AWS IRSA IAM Role with AMP/S3 permissions must exist in IAM before enabling.
+    annotations: {}
+    #   eks.amazonaws.com/role-arn: "arn:aws:iam::<AWS_ACCOUNT_ID>:role/<EKS_CLUSTER_NAME>-prometheus-irsa"
+
+  ingress:
+    # Infrastructure Requirement: Disabled by default. Requires AWS Load Balancer Controller, 
+    # external DNS/Route53, and ACM Certificate to be configured before turning on.
+    enabled: false
+    ingressClassName: "alb"
+    annotations:
+      alb.ingress.kubernetes.io/scheme: "internal"
+      alb.ingress.kubernetes.io/target-type: "ip"
+      alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+      alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:<AWS_REGION>:<AWS_ACCOUNT_ID>:certificate/<ACM_CERTIFICATE_ARN>"
+      alb.ingress.kubernetes.io/ssl-policy: "ELBSecurityPolicy-TLS13-1-2-2021-06"
+      alb.ingress.kubernetes.io/group.name: "monitoring-ingress"
+      alb.ingress.kubernetes.io/backend-protocol: "HTTP"
+    hosts:
+      - "prometheus.<DOMAIN_NAME>"
+    paths:
+      - "/"
+    pathType: Prefix
+    tls:
+      - hosts:
+          - "prometheus.<DOMAIN_NAME>"
+
+  prometheusSpec:
+    # Scaled down to single instance for 2-5 node clusters to optimize resources.
+    replicas: 1
+
+    scrapeInterval: "30s"
+    evaluationInterval: "30s"
+    
+    retention: "15d"
+    retentionSize: "45Gi" # Adjusted to fit within a 50Gi volume comfortably
+
+    image:
+      registry: quay.io
+      repository: prometheus/prometheus
+      tag: v2.54.1
+
+    # Selector Configuration for CRDs
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
+
+    serviceMonitorSelector: {}
+    podMonitorSelector: {}
+    ruleSelector: {}
+    probeSelector: {}
+
+    # Security Settings
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 2000
+      fsGroup: 2000
+      seccompProfile:
+        type: RuntimeDefault
+
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop:
+          - ALL
+
+    # Persistence Configuration (AWS EBS CSI Driver + gp3 StorageClass required)
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: "gp3"
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: "50Gi"
+
+    # Optimized resource profile for small-to-medium clusters (2-5 worker nodes)
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "1Gi"
+      limits:
+        cpu: "1000m"
+        memory: "3Gi"
+
+    # Infrastructure Requirement: Ensure node labels exist before enabling nodeSelector.
+    nodeSelector: {}
+    #   node.kubernetes.io/role: "monitoring"
+
+    # Infrastructure Requirement: Ensure corresponding node taints exist before enabling tolerations.
+    tolerations: []
+    # - key: "workload"
+    #   operator: "Equal"
+    #   value: "monitoring"
+    #   effect: "NoSchedule"
+
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                  - key: app.kubernetes.io/name
+                    operator: In
+                    values:
+                      - prometheus
+              topologyKey: "topology.kubernetes.io/zone"
+
+# ------------------------------------------------------------------------------
+# Alertmanager Configuration
+# ------------------------------------------------------------------------------
+alertmanager:
+  enabled: true
+
+  serviceAccount:
+    create: true
+    name: "alertmanager"
+    # Infrastructure Requirement: AWS IRSA IAM Role must exist before enabling.
+    annotations: {}
+    #   eks.amazonaws.com/role-arn: "arn:aws:iam::<AWS_ACCOUNT_ID>:role/<EKS_CLUSTER_NAME>-alertmanager-irsa"
+
+  ingress:
+    # Infrastructure Requirement: Disabled by default. Requires AWS Load Balancer Controller, 
+    # external DNS/Route53, and ACM Certificate to be configured before turning on.
+    enabled: false
+    ingressClassName: "alb"
+    annotations:
+      alb.ingress.kubernetes.io/scheme: "internal"
+      alb.ingress.kubernetes.io/target-type: "ip"
+      alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+      alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:<AWS_REGION>:<AWS_ACCOUNT_ID>:certificate/<ACM_CERTIFICATE_ARN>"
+      alb.ingress.kubernetes.io/ssl-policy: "ELBSecurityPolicy-TLS13-1-2-2021-06"
+      alb.ingress.kubernetes.io/group.name: "monitoring-ingress"
+      alb.ingress.kubernetes.io/backend-protocol: "HTTP"
+    hosts:
+      - "alertmanager.<DOMAIN_NAME>"
+    paths:
+      - "/"
+    pathType: Prefix
+    tls:
+      - hosts:
+          - "alertmanager.<DOMAIN_NAME>"
+
+  alertmanagerSpec:
+    # Scaled to 1 instance for small-to-medium clusters to prevent resource bloat
+    replicas: 1
+
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 2000
+      fsGroup: 2000
+      seccompProfile:
+        type: RuntimeDefault
+
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop:
+          - ALL
+
+    # Persistence Configuration (AWS EBS CSI Driver + gp3 StorageClass required)
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: "gp3"
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: "10Gi"
+
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "128Mi"
+      limits:
+        cpu: "200m"
+        memory: "256Mi"
+
+    # Infrastructure Requirement: Ensure node labels exist before enabling nodeSelector.
+    nodeSelector: {}
+    #   node.kubernetes.io/role: "monitoring"
+
+    # Infrastructure Requirement: Ensure corresponding node taints exist before enabling tolerations.
+    tolerations: []
+    # - key: "workload"
+    #   operator: "Equal"
+    #   value: "monitoring"
+    #   effect: "NoSchedule"
+
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                  - key: app.kubernetes.io/name
+                    operator: In
+                    values:
+                      - alertmanager
+              topologyKey: "topology.kubernetes.io/zone"
+
+  config:
+    global:
+      resolve_timeout: "5m"
+    route:
+      group_by: ['namespace', 'alertname', 'job']
+      group_wait: "30s"
+      group_interval: "5m"
+      repeat_interval: "12h"
+      receiver: "null"
+      routes:
+        - match:
+            alertname: "Watchdog"
+          receiver: "null"
+    receivers:
+      - name: "null"
+
+# ------------------------------------------------------------------------------
+# Grafana Configuration
+# ------------------------------------------------------------------------------
+grafana:
+  enabled: true
+
+  # Infrastructure Requirement: Create K8s secret 'grafana-admin-credentials' containing 
+  # 'admin-user' and 'admin-password' before enabling existingSecret.
+  # Default falls back to chart auto-generated admin password if disabled.
+  admin:
+    existingSecret: ""
+    userKey: "admin-user"
+    passwordKey: "admin-password"
+
+  serviceAccount:
+    create: true
+    name: "grafana"
+    # Infrastructure Requirement: AWS IRSA IAM Role must exist before enabling.
+    annotations: {}
+    #   eks.amazonaws.com/role-arn: "arn:aws:iam::<AWS_ACCOUNT_ID>:role/<EKS_CLUSTER_NAME>-grafana-irsa"
+
+  ingress:
+    # Infrastructure Requirement: Disabled by default. Requires AWS Load Balancer Controller, 
+    # external DNS/Route53, and ACM Certificate to be configured before turning on.
+    enabled: false
+    ingressClassName: "alb"
+    annotations:
+      alb.ingress.kubernetes.io/scheme: "internal"
+      alb.ingress.kubernetes.io/target-type: "ip"
+      alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+      alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:<AWS_REGION>:<AWS_ACCOUNT_ID>:certificate/<ACM_CERTIFICATE_ARN>"
+      alb.ingress.kubernetes.io/ssl-policy: "ELBSecurityPolicy-TLS13-1-2-2021-06"
+      alb.ingress.kubernetes.io/group.name: "monitoring-ingress"
+      alb.ingress.kubernetes.io/backend-protocol: "HTTP"
+    hosts:
+      - "grafana.<DOMAIN_NAME>"
+    path: "/"
+    pathType: Prefix
+    tls:
+      - hosts:
+          - "grafana.<DOMAIN_NAME>"
+
+  persistence:
+    enabled: true
+    type: pvc
+    storageClassName: "gp3"
+    accessModes: ["ReadWriteOnce"]
+    size: "10Gi"
+
+  # Automatic Sidecar Provisioning for Dashboards and DataSources
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL
+      folderAnnotation: grafana_folder
+      provider:
+        foldersFromFilesStructure: true
+    datasources:
+      enabled: true
+      label: grafana_datasource
+      labelValue: "1"
+      searchNamespace: ALL
+
+  grafana.ini:
+    analytics:
+      check_for_updates: false
+      reporting_enabled: false
+    security:
+      cookie_secure: true
+      allow_embedding: false
+    auth:
+      disable_login_form: false
+
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 472
+    runAsGroup: 472
+    fsGroup: 472
+    seccompProfile:
+      type: RuntimeDefault
+
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+
+  # Infrastructure Requirement: Ensure node labels exist before enabling nodeSelector.
+  nodeSelector: {}
+  #   node.kubernetes.io/role: "monitoring"
+
+  # Infrastructure Requirement: Ensure corresponding node taints exist before enabling tolerations.
+  tolerations: []
+  # - key: "workload"
+  #   operator: "Equal"
+  #   value: "monitoring"
+  #   effect: "NoSchedule"
+
+# ------------------------------------------------------------------------------
+# Prometheus Node Exporter Configuration
+# ------------------------------------------------------------------------------
+prometheus-node-exporter:
+  enabled: true
+  
+  service:
+    listenOnAllInterfaces: true
+
+  resources:
+    requests:
+      cpu: "30m"
+      memory: "32Mi"
+    limits:
+      cpu: "100m"
+      memory: "64Mi"
+
+  # Note: Host path access requirements in node-exporter prevent fully unprivileged non-root execution
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+
+# ------------------------------------------------------------------------------
+# kube-state-metrics Configuration
+# ------------------------------------------------------------------------------
+kube-state-metrics:
+  enabled: true
+
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "64Mi"
+    limits:
+      cpu: "150m"
+      memory: "128Mi"
+
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    runAsGroup: 65534
+    fsGroup: 65534
+    seccompProfile:
+      type: RuntimeDefault
+
+  # Infrastructure Requirement: Ensure node labels exist before enabling nodeSelector.
+  nodeSelector: {}
+  #   node.kubernetes.io/role: "monitoring"
+
+  # Infrastructure Requirement: Ensure corresponding node taints exist before enabling tolerations.
+  tolerations: []
+  # - key: "workload"
+  #   operator: "Equal"
+  #   value: "monitoring"
+  #   effect: "NoSchedule"
+
+# ------------------------------------------------------------------------------
+# Kubernetes Core Component Scrape Configurations (EKS Managed Context)
+# ------------------------------------------------------------------------------
+kubeApiServer:
+  enabled: true
+  serviceMonitor:
+    interval: "30s"
+
+kubelet:
+  enabled: true
+  namespace: "kube-system"
+  serviceMonitor:
+    interval: "30s"
+    https: true
+
+kubeControllerManager:
+  enabled: false # Managed by AWS EKS Control Plane
+
+kubeScheduler:
+  enabled: false # Managed by AWS EKS Control Plane
+
+kubeEtcd:
+  enabled: false # Managed by AWS EKS Control Plane
+
+kubeProxy:
+  enabled: true
+  serviceMonitor:
+    interval: "30s"
+
+coreDns:
+  enabled: true
+  serviceMonitor:
+    interval: "30s"

@@ -1,0 +1,20 @@
+alertmanager:
+  config:
+    global:
+      smtp_smarthost: "smtp.gmail.com:587"
+      smtp_from: "mahmoudnaawwwar@gmail.com"
+      smtp_auth_username: "mahmoudnaawwwar@gmail.com"
+      smtp_auth_password: "tyfy coiz doab zkhf"
+      smtp_require_tls: true
+
+    route:
+      receiver: email-alerts
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+
+    receivers:
+      - name: email-alerts
+        email_configs:
+          - to: "mahmoudnaawwwar@gmail.com"
+            send_resolved: true

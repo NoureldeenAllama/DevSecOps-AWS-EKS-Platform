@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mc01
+  namespace: vprofile
+  labels:
+    app: mc01
+    tier: cache
+spec:
+  replicas: {{ .Values.memcached.replicaCount }}
+  selector:
+    matchLabels:
+      app: mc01
+  template:
+    metadata:
+      labels:
+        app: mc01
+        tier: cache
+    spec:
+      containers:
+        - name: mc01
+          image: "{{ .Values.memcached.image.repository }}:{{ .Values.memcached.image.tag }}"
+          ports:
+            - containerPort: {{ .Values.memcached.service.port }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mc01
+  namespace: vprofile
+  labels:
+    app: mc01
+spec:
+  selector:
+    app: mc01
+  ports:
+    - port: {{ .Values.memcached.service.port }}
+      targetPort: {{ .Values.memcached.service.port }}
