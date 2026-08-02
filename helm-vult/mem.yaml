@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mc01
+  namespace: vprofile
+  labels:
+    app: mc01
+    tier: cache
+spec:
+  replicas: {{ .Values.memcached.replicaCount }}
+  selector:
+    matchLabels:
+      app: mc01
+  template:
+    metadata:
+      labels:
+        app: mc01
+        tier: cache
+      annotations:
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: "memcached-role"
+        vault.hashicorp.com/agent-inject-secret-memcached.env: "secret/data/memcached"
+        vault.hashicorp.com/agent-inject-template-memcached.env: |
+          {{`{{- with secret "secret/data/memcached" -}}`}}
+          export MEMCACHED_HOST={{`{{ .Data.data.MEMCACHED_HOST }}`}}
+          export MEMCACHED_PORT={{`{{ .Data.data.MEMCACHED_PORT }}`}}
+          {{`{{- end }}`}}
+    spec:
+      serviceAccountName: memcached-sa
+      containers:
+        - name: mc01
+          image: "{{ .Values.memcached.image.repository }}:{{ .Values.memcached.image.tag }}"
+          command:
+            - "/bin/sh"
+            - "-c"
+            - |
+              until [ -f /vault/secrets/memcached.env ]; do echo waiting for vault secret; sleep 2; done
+              source /vault/secrets/memcached.env
+              exec memcached -p "$MEMCACHED_PORT"
+          ports:
+            - containerPort: {{ .Values.memcached.service.port }}
+
+          resources: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mc01
+  namespace: vprofile
+  labels:
+    app: mc01
+spec:
+  selector:
+    app: mc01
+  ports:
+    - port: {{ .Values.memcached.service.port }}
+      targetPort: {{ .Values.memcached.service.port }}

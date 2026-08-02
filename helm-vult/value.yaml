@@ -1,0 +1,58 @@
+namespace: vprofile
+
+frontend:
+  replicaCount: 1
+  image:
+    repository: 484056256277.dkr.ecr.us-east-1.amazonaws.com/vprofile-front
+    tag: "1.0"
+
+  service:
+    type: LoadBalancer
+    port: 80
+    targetPort: 80
+    nodePort: 30080
+
+backend:
+  replicaCount: 1
+  image:
+    repository: 484056256277.dkr.ecr.us-east-1.amazonaws.com/vprofile-back
+    tag: "1.0"
+
+  service:
+    type: ClusterIP
+    port: 8080
+    targetPort: 8080
+
+db:
+  replicaCount: 1
+
+  image:
+    repository: 484056256277.dkr.ecr.us-east-1.amazonaws.com/vprofile-db
+    tag: "1.0"
+
+  database: accounts
+
+  rootPassword: vprodbpass
+
+  service:
+    port: 3306
+    targetPort: 3306
+
+rabbitmq:
+  replicaCount: 1
+  image:
+    repository: rabbitmq
+    tag: "3-management"
+
+  service:
+    port: 5672
+    managementPort: 15672
+
+memcached:
+  replicaCount: 1
+  image:
+    repository: memcached
+    tag: "1.6"
+
+  service:
+    port: 11211

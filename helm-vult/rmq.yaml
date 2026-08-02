@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rmq01
+  namespace: vprofile
+  labels:
+    app: rmq01
+    tier: mq
+spec:
+  replicas: {{ .Values.rabbitmq.replicaCount }}
+  selector:
+    matchLabels:
+      app: rmq01
+  template:
+    metadata:
+      labels:
+        app: rmq01
+        tier: mq
+      annotations:
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: "rabbitmq-role"
+        vault.hashicorp.com/agent-inject-secret-rabbitmq.env: "secret/data/rabbitmq"
+        vault.hashicorp.com/agent-inject-template-rabbitmq.env: |
+          {{`{{- with secret "secret/data/rabbitmq" -}}`}}
+          export RABBITMQ_DEFAULT_USER={{`{{ .Data.data.username }}`}}
+          export RABBITMQ_DEFAULT_PASS={{`{{ .Data.data.password }}`}}
+          {{`{{- end }}`}}
+    spec:
+      serviceAccountName: rabbitmq-sa
+      containers:
+        - name: rmq01
+          image: "{{ .Values.rabbitmq.image.repository }}:{{ .Values.rabbitmq.image.tag }}"
+          command:
+            - "/bin/sh"
+            - "-c"
+            - |
+              until [ -f /vault/secrets/rabbitmq.txt ]; do echo waiting for vault secret; sleep 2; done
+              source /vault/secrets/rabbitmq.txt
+              exec docker-entrypoint.sh rabbitmq-server
+          ports:
+            - containerPort: {{ .Values.rabbitmq.service.port }}
+            - containerPort: {{ .Values.rabbitmq.service.managementPort }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rmq01
+  namespace: vprofile
+  labels:
+    app: rmq01
+spec:
+  selector:
+    app: rmq01
+  ports:
+    - name: amqp
+      port: {{ .Values.rabbitmq.service.port }}
+      targetPort: {{ .Values.rabbitmq.service.port }}
+    - name: management
+      port: {{ .Values.rabbitmq.service.managementPort }}
+      targetPort: {{ .Values.rabbitmq.service.managementPort }}
